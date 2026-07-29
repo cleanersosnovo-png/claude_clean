@@ -34,6 +34,7 @@
 
   const DEFAULT_STATE = {
     transactions: [],           // { id, type, amount, category, date:'YYYY-MM-DD', note }
+    loans: [],                  // { id, name, principal, remaining, monthlyPayment, rate, nextDate }
     settings: {
       currency: '₽',
       totalBudget: 0,
@@ -50,6 +51,7 @@
       const parsed = JSON.parse(raw);
       return {
         transactions: Array.isArray(parsed.transactions) ? parsed.transactions : [],
+        loans: Array.isArray(parsed.loans) ? parsed.loans : [],
         settings: Object.assign(structuredClone(DEFAULT_STATE.settings), parsed.settings || {}),
       };
     } catch (e) {
@@ -77,6 +79,7 @@
     getState() { return state; },
     getSettings() { return state.settings; },
     getTransactions() { return state.transactions; },
+    getLoans() { return state.loans; },
 
     categoryById(id) {
       return CATEGORIES.expense.find(c => c.id === id)
@@ -115,6 +118,53 @@
       persist();
     },
 
+    addLoan(loan) {
+      const item = {
+        id: uid(),
+        name: (loan.name || '').trim() || 'Кредит',
+        principal: Math.abs(Number(loan.principal)) || 0,
+        remaining: Math.abs(Number(loan.remaining)) || 0,
+        monthlyPayment: Math.abs(Number(loan.monthlyPayment)) || 0,
+        rate: Number(loan.rate) || 0,
+        nextDate: loan.nextDate || null,
+      };
+      state.loans.push(item);
+      persist();
+      return item;
+    },
+
+    updateLoan(id, patch) {
+      const loan = state.loans.find(l => l.id === id);
+      if (!loan) return null;
+      if (patch.name != null) loan.name = patch.name.trim() || 'Кредит';
+      if (patch.principal != null) loan.principal = Math.abs(Number(patch.principal)) || 0;
+      if (patch.remaining != null) loan.remaining = Math.max(0, Number(patch.remaining) || 0);
+      if (patch.monthlyPayment != null) loan.monthlyPayment = Math.abs(Number(patch.monthlyPayment)) || 0;
+      if (patch.rate != null) loan.rate = Number(patch.rate) || 0;
+      if (patch.nextDate !== undefined) loan.nextDate = patch.nextDate;
+      persist();
+      return loan;
+    },
+
+    deleteLoan(id) {
+      state.loans = state.loans.filter(l => l.id !== id);
+      persist();
+    },
+
+    payLoan(id, amount) {
+      const loan = state.loans.find(l => l.id === id);
+      if (!loan) return null;
+      const pay = Math.abs(Number(amount)) || 0;
+      loan.remaining = Math.max(0, loan.remaining - pay);
+      if (loan.nextDate) {
+        const d = new Date(loan.nextDate + 'T00:00:00');
+        d.setMonth(d.getMonth() + 1);
+        loan.nextDate = d.toISOString().slice(0, 10);
+      }
+      persist();
+      return loan;
+    },
+
     updateSettings(patch) {
       Object.assign(state.settings, patch);
       persist();
@@ -150,6 +200,7 @@
       }
       state = {
         transactions: parsed.transactions,
+        loans: Array.isArray(parsed.loans) ? parsed.loans : [],
         settings: Object.assign(structuredClone(DEFAULT_STATE.settings), parsed.settings || {}),
       };
       persist();

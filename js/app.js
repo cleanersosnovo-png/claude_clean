@@ -12,10 +12,11 @@
   let currentView = 'dashboard';
   let currentMonth = new Date().toISOString().slice(0, 7); // 'YYYY-MM'
   let modalDraft = null; // { id?, type, category, ... } при открытом окне
+  let loanDraft = null;  // { id? } при открытом окне кредита
 
   const MONTHS_RU = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
   const MONTHS_RU_SHORT = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
-  const VIEW_TITLES = { dashboard: 'Главная', transactions: 'Операции', analytics: 'Аналитика', budget: 'Бюджет' };
+  const VIEW_TITLES = { dashboard: 'Главная', transactions: 'Операции', analytics: 'Аналитика', budget: 'Бюджет', loans: 'Кредиты' };
 
   // ---------- Форматирование ----------
   function cur() { return S.getSettings().currency; }
@@ -75,6 +76,7 @@
     renderTransactions();
     renderAnalytics();
     renderBudget();
+    renderLoans();
   }
 
   // ---------- Dashboard ----------
@@ -369,6 +371,112 @@
     });
   }
 
+  // ---------- Loans ----------
+  function renderLoans() {
+    const loans = S.getLoans();
+    const active = loans.filter(l => l.remaining > 0);
+    const totalDebt = active.reduce((s, l) => s + l.remaining, 0);
+    const monthlyTotal = active.reduce((s, l) => s + l.monthlyPayment, 0);
+
+    $('#loansTotalDebt').textContent = fmtMoney(totalDebt);
+    $('#loansMonthlyTotal').textContent = `Платежи в месяц: ${fmtMoney(monthlyTotal)}`;
+
+    const wrap = $('#loansList');
+    if (loans.length === 0) {
+      wrap.innerHTML = `<div class="empty-state"><div class="empty-state__emoji">🏦</div>
+        <div>Пока нет ни одного кредита</div></div>`;
+      return;
+    }
+
+    wrap.innerHTML = loans.map(l => {
+      const paidOff = l.remaining <= 0;
+      const pct = l.principal > 0 ? Math.min(100, Math.round((l.principal - l.remaining) / l.principal * 100)) : 0;
+      return `
+        <div class="loan-card" data-id="${l.id}">
+          <div class="loan-card__head">
+            <div class="loan-card__name">🏦 ${escapeHTML(l.name)}</div>
+          </div>
+          <div class="loan-card__amounts">
+            <div class="loan-card__remaining">${fmtMoney(l.remaining)}</div>
+            <div class="loan-card__principal">из ${fmtMoney(l.principal)}</div>
+          </div>
+          <div class="loan-card__bar"><div class="loan-card__bar-fill" style="width:${pct}%"></div></div>
+          ${paidOff
+            ? `<div class="loan-card__paid-badge">✅ Кредит погашен</div>`
+            : `<div class="loan-card__meta-row">
+                <span>Платёж: ${fmtMoney(l.monthlyPayment)}</span>
+                <span>${l.nextDate ? formatDayLabel(l.nextDate) : '—'}</span>
+              </div>`}
+          <div class="loan-card__actions">
+            ${!paidOff ? `<button class="btn btn--primary loan-pay-btn" data-id="${l.id}" style="flex:1">Внести платёж</button>` : ''}
+            <button class="btn btn--ghost loan-edit-btn" data-id="${l.id}" style="flex:${paidOff ? 1 : 'none'};width:${paidOff ? 'auto' : '86px'}">Изменить</button>
+          </div>
+        </div>`;
+    }).join('');
+
+    $$('.loan-pay-btn', wrap).forEach(btn => {
+      btn.addEventListener('click', () => {
+        const loan = loans.find(l => l.id === btn.dataset.id);
+        if (!loan) return;
+        S.payLoan(loan.id, loan.monthlyPayment);
+        toast('Платёж внесён ✓');
+        renderLoans();
+      });
+    });
+    $$('.loan-edit-btn', wrap).forEach(btn => {
+      btn.addEventListener('click', () => {
+        const loan = loans.find(l => l.id === btn.dataset.id);
+        if (loan) openLoanModal(loan);
+      });
+    });
+  }
+
+  function openLoanModal(loan) {
+    const editing = !!loan;
+    loanDraft = { id: loan ? loan.id : null };
+    $('#loanModalTitle').textContent = editing ? 'Изменить кредит' : 'Новый кредит';
+    $('#loanNameInput').value = loan ? loan.name : '';
+    $('#loanPrincipalInput').value = loan ? loan.principal : '';
+    $('#loanRemainingInput').value = loan ? loan.remaining : '';
+    $('#loanMonthlyInput').value = loan ? loan.monthlyPayment : '';
+    $('#loanRateInput').value = loan && loan.rate ? loan.rate : '';
+    $('#loanDateInput').value = loan && loan.nextDate ? loan.nextDate : todayISO();
+    $('#deleteLoanBtn').hidden = !editing;
+    $('#saveLoanBtn').textContent = editing ? 'Обновить' : 'Сохранить';
+    $('#loanModal').hidden = false;
+  }
+
+  function closeLoanModal() { $('#loanModal').hidden = true; loanDraft = null; }
+
+  function saveLoanModal() {
+    const name = $('#loanNameInput').value.trim();
+    const principal = parseFloat($('#loanPrincipalInput').value);
+    const remaining = parseFloat($('#loanRemainingInput').value);
+    const monthlyPayment = parseFloat($('#loanMonthlyInput').value);
+    if (!name) { toast('Введите название'); $('#loanNameInput').focus(); return; }
+    if (!principal || principal <= 0) { toast('Введите сумму кредита'); $('#loanPrincipalInput').focus(); return; }
+    if (isNaN(remaining) || remaining < 0) { toast('Введите остаток долга'); $('#loanRemainingInput').focus(); return; }
+    const payload = {
+      name, principal, remaining,
+      monthlyPayment: monthlyPayment || 0,
+      rate: parseFloat($('#loanRateInput').value) || 0,
+      nextDate: $('#loanDateInput').value || null,
+    };
+    if (loanDraft.id) { S.updateLoan(loanDraft.id, payload); toast('Кредит обновлён'); }
+    else { S.addLoan(payload); toast('Кредит добавлен ✓'); }
+    closeLoanModal();
+    renderLoans();
+  }
+
+  function deleteLoanModal() {
+    if (!loanDraft.id) return;
+    if (!confirm('Удалить этот кредит?')) return;
+    S.deleteLoan(loanDraft.id);
+    toast('Удалено');
+    closeLoanModal();
+    renderLoans();
+  }
+
   // ============================================================
   //  МОДАЛЬНОЕ ОКНО ДОБАВЛЕНИЯ / РЕДАКТИРОВАНИЯ
   // ============================================================
@@ -548,6 +656,12 @@
     // Месяц
     $('#monthPickerBtn').addEventListener('click', openMonthPicker);
     $('#monthModal').addEventListener('click', e => { if (e.target.dataset.close !== undefined) $('#monthModal').hidden = true; });
+
+    // Кредиты
+    $('#addLoanBtn').addEventListener('click', () => openLoanModal(null));
+    $('#loanModal').addEventListener('click', e => { if (e.target.dataset.close !== undefined) closeLoanModal(); });
+    $('#saveLoanBtn').addEventListener('click', saveLoanModal);
+    $('#deleteLoanBtn').addEventListener('click', deleteLoanModal);
 
     // Фильтры операций
     $('#txSearch').addEventListener('input', renderTransactions);

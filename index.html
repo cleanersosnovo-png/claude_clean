@@ -145,6 +145,21 @@
         </div>
         <div class="app-footer">Финтрек · данные хранятся только на вашем устройстве</div>
       </section>
+
+      <!-- ============ LOANS ============ -->
+      <section class="view" id="view-loans" hidden>
+        <div class="balance-card balance-card--loans">
+          <div class="balance-card__label">Общий остаток долга</div>
+          <div class="balance-card__value" id="loansTotalDebt">0 ₽</div>
+          <div class="balance-card__meta">
+            <span id="loansMonthlyTotal">Платежи в месяц: 0 ₽</span>
+          </div>
+        </div>
+
+        <button class="btn btn--primary" id="addLoanBtn" style="margin:14px 0">+ Добавить кредит</button>
+
+        <div id="loansList"></div>
+      </section>
     </main>
 
     <!-- Floating add button -->
@@ -169,6 +184,10 @@
       <button class="tab" data-nav="budget">
         <svg viewBox="0 0 24 24"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>
         <span>Бюджет</span>
+      </button>
+      <button class="tab" data-nav="loans">
+        <svg viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2.5" stroke="currentColor" stroke-width="2" fill="none"/><line x1="2" y1="10" x2="22" y2="10" stroke="currentColor" stroke-width="2"/></svg>
+        <span>Кредиты</span>
       </button>
     </nav>
   </div>
@@ -213,6 +232,45 @@
       <div class="modal__handle"></div>
       <div class="chart-title">Выберите месяц</div>
       <div id="monthList" class="month-list"></div>
+    </div>
+  </div>
+
+  <!-- Loan add/edit modal -->
+  <div class="modal" id="loanModal" hidden>
+    <div class="modal__backdrop" data-close></div>
+    <div class="modal__sheet">
+      <div class="modal__handle"></div>
+      <div class="chart-title" id="loanModalTitle">Новый кредит</div>
+
+      <label class="field">
+        <span>Название (банк, цель)</span>
+        <input type="text" id="loanNameInput" class="input" placeholder="Например, Сбербанк — ипотека" maxlength="60" />
+      </label>
+      <label class="field">
+        <span>Сумма кредита</span>
+        <input type="number" inputmode="decimal" id="loanPrincipalInput" class="input" placeholder="Например, 500000" />
+      </label>
+      <label class="field">
+        <span>Остаток долга сейчас</span>
+        <input type="number" inputmode="decimal" id="loanRemainingInput" class="input" placeholder="Например, 500000" />
+      </label>
+      <label class="field">
+        <span>Ежемесячный платёж</span>
+        <input type="number" inputmode="decimal" id="loanMonthlyInput" class="input" placeholder="Например, 15000" />
+      </label>
+      <label class="field">
+        <span>Процентная ставка, % годовых (необязательно)</span>
+        <input type="number" inputmode="decimal" id="loanRateInput" class="input" placeholder="Например, 12" />
+      </label>
+      <label class="field">
+        <span>Дата следующего платежа</span>
+        <input type="date" id="loanDateInput" class="input" />
+      </label>
+
+      <div class="modal__actions">
+        <button class="btn btn--danger-ghost" id="deleteLoanBtn" hidden>Удалить</button>
+        <button class="btn btn--primary" id="saveLoanBtn">Сохранить</button>
+      </div>
     </div>
   </div>
 
