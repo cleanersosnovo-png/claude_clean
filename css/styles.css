@@ -89,6 +89,16 @@ input, select { font-family: inherit; font-size: 16px; }
   box-shadow: var(--shadow); padding: 16px; margin-bottom: 4px;
 }
 
+/* ---------- Total balance card ---------- */
+.total-balance-card {
+  background: var(--surface); border-radius: var(--radius);
+  box-shadow: var(--shadow); padding: 16px 18px; margin: 12px 0 4px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.total-balance-card__label { font-size: 14px; color: var(--text-dim); font-weight: 500; }
+.total-balance-card__value { font-size: 24px; font-weight: 800; letter-spacing: -.02em; color: var(--income); }
+.total-balance-card__value.negative { color: var(--danger); }
+
 /* ---------- Balance card ---------- */
 .balance-card {
   background: linear-gradient(135deg, var(--primary), color-mix(in srgb, var(--primary) 60%, #0891b2));

@@ -83,6 +83,13 @@
   function renderDashboard() {
     const st = monthStats(currentMonth);
 
+    // Остаток средств — общий баланс за всё время
+    const allTx = S.getTransactions();
+    const totalBalance = allTx.reduce((s, t) => s + (t.type === 'income' ? t.amount : -t.amount), 0);
+    const balanceEl = $('#totalBalanceValue');
+    balanceEl.textContent = (totalBalance < 0 ? '−' : '') + fmtMoney(Math.abs(totalBalance));
+    balanceEl.classList.toggle('negative', totalBalance < 0);
+
     $('#dashSpent').textContent = fmtMoney(st.totalExpense);
     $('#statToday').textContent = fmtMoney(st.spentToday);
     $('#statAvg').textContent = fmtMoney(st.avgPerDay);
