@@ -148,6 +148,18 @@
           <input type="file" id="importFile" accept="application/json" hidden />
           <button class="btn btn--danger-ghost" id="clearBtn">🗑 Очистить все данные</button>
         </div>
+
+        <div class="section-head"><h2>Отчёт по расходам</h2></div>
+        <div class="card">
+          <button class="btn btn--ghost" id="exportExcelBtn">📊 Скачать Excel (расходы за месяц)</button>
+          <label class="field" style="margin-top:4px">
+            <span>Email для отправки отчёта</span>
+            <input type="email" id="reportEmailInput" class="input" placeholder="example@yandex.ru" />
+          </label>
+          <button class="btn btn--primary" id="emailReportBtn" style="margin-top:12px">📧 Отправить отчёт на почту</button>
+          <div class="empty-hint" style="padding:10px 2px 0;text-align:left">Откроется окно «Поделиться» — выберите «Почта», файл прикрепится автоматически.</div>
+        </div>
+
         <div class="app-footer">Финтрек · данные хранятся только на вашем устройстве</div>
       </section>
 

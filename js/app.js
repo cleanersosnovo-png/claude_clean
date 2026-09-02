@@ -348,6 +348,7 @@
     $('#totalBudgetInput').value = S.getSettings().totalBudget || '';
     $('#currencySelect').value = S.getSettings().currency;
     $('#amountCur').textContent = cur();
+    $('#reportEmailInput').value = S.getSettings().reportEmail || '';
 
     const st = monthStats(currentMonth);
     const budgets = S.getSettings().categoryBudgets;
@@ -630,6 +631,82 @@
     toast('Данные экспортированы');
   }
 
+  function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // Формирует .xls (HTML-таблица, которую Excel открывает как обычную книгу)
+  function buildExpensesWorkbookHTML(monthKey) {
+    const st = monthStats(monthKey);
+    const rows = [...st.expenses].sort((a, b) => a.date.localeCompare(b.date));
+    const trs = rows.map(t => {
+      const c = S.categoryById(t.category);
+      return `<tr>
+        <td>${t.date}</td>
+        <td>${escapeHTML(c.name)}</td>
+        <td style="mso-number-format:'0';text-align:right">${t.amount}</td>
+        <td>${escapeHTML(t.note || '')}</td>
+      </tr>`;
+    }).join('');
+    return `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="UTF-8">
+<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet>
+<x:Name>Расходы</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions>
+</x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->
+</head><body>
+<table border="1">
+<tr><th colspan="4" style="font-size:14pt">Расходы — ${escapeHTML(monthLabel(monthKey))}</th></tr>
+<tr><th>Дата</th><th>Категория</th><th>Сумма (${cur()})</th><th>Комментарий</th></tr>
+${trs || '<tr><td colspan="4">Нет расходов за этот период</td></tr>'}
+<tr><td colspan="2"><b>Итого</b></td><td style="text-align:right"><b>${st.totalExpense}</b></td><td></td></tr>
+</table>
+</body></html>`;
+  }
+
+  function buildExpensesReportFile() {
+    const html = buildExpensesWorkbookHTML(currentMonth);
+    const blob = new Blob(['﻿' + html], { type: 'application/vnd.ms-excel' });
+    const filename = `fintrek-rashody-${currentMonth}.xls`;
+    return { blob, filename };
+  }
+
+  function exportExcel() {
+    const { blob, filename } = buildExpensesReportFile();
+    downloadBlob(blob, filename);
+    toast('Файл Excel скачан');
+  }
+
+  async function emailReport() {
+    const email = ($('#reportEmailInput').value || '').trim();
+    if (!email) { toast('Введите email'); $('#reportEmailInput').focus(); return; }
+    S.updateSettings({ reportEmail: email });
+
+    const { blob, filename } = buildExpensesReportFile();
+    const subject = `Финтрек — расходы за ${monthLabel(currentMonth)}`;
+    const body = `Отчёт о расходах за ${monthLabel(currentMonth)} — во вложении.\nОтправьте на ${email}.`;
+
+    let file = null;
+    try { file = new File([blob], filename, { type: 'application/vnd.ms-excel' }); } catch (e) { /* File API недоступен */ }
+
+    if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: subject, text: `Отправьте на ${email}` });
+        toast('Готово — выберите «Почта» в списке');
+      } catch (e) {
+        if (e.name !== 'AbortError') toast('Не удалось открыть окно «Поделиться»');
+      }
+    } else {
+      downloadBlob(blob, filename);
+      window.location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+      toast('Файл скачан — приложите его к письму вручную');
+    }
+  }
+
   function importData(file) {
     const reader = new FileReader();
     reader.onload = () => {
@@ -687,6 +764,9 @@
     // Данные
     $('#exportBtn').addEventListener('click', exportData);
     $('#importBtn').addEventListener('click', () => $('#importFile').click());
+    $('#exportExcelBtn').addEventListener('click', exportExcel);
+    $('#emailReportBtn').addEventListener('click', emailReport);
+    $('#reportEmailInput').addEventListener('change', e => S.updateSettings({ reportEmail: e.target.value.trim() }));
     $('#importFile').addEventListener('change', e => { if (e.target.files[0]) importData(e.target.files[0]); e.target.value = ''; });
     $('#clearBtn').addEventListener('click', () => {
       if (confirm('Удалить ВСЕ операции и настройки? Это действие необратимо.')) {

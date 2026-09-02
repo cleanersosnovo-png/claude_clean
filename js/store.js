@@ -39,6 +39,7 @@
       currency: '₽',
       totalBudget: 0,
       categoryBudgets: {},      // { categoryId: amount }
+      reportEmail: '',
     },
   };
 
