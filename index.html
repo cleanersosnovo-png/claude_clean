@@ -151,7 +151,15 @@
 
         <div class="section-head"><h2>Отчёт по расходам</h2></div>
         <div class="card">
-          <button class="btn btn--ghost" id="exportExcelBtn">📊 Скачать Excel (расходы за месяц)</button>
+          <label class="field" style="margin-top:0">
+            <span>Период — с</span>
+            <input type="date" id="reportFromInput" class="input" />
+          </label>
+          <label class="field">
+            <span>по</span>
+            <input type="date" id="reportToInput" class="input" />
+          </label>
+          <button class="btn btn--ghost" id="exportExcelBtn" style="margin-top:14px">📊 Скачать Excel (.xlsx)</button>
           <label class="field" style="margin-top:4px">
             <span>Email для отправки отчёта</span>
             <input type="email" id="reportEmailInput" class="input" placeholder="example@yandex.ru" />
@@ -295,6 +303,7 @@
 
   <script src="js/store.js"></script>
   <script src="js/charts.js"></script>
+  <script src="js/xlsx.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>

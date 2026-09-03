@@ -1,11 +1,12 @@
 /* Service worker — офлайн-кэширование «Финтрек» */
-const CACHE = 'fintrek-v1';
+const CACHE = 'fintrek-v2';
 const ASSETS = [
   './',
   './index.html',
   './css/styles.css',
   './js/store.js',
   './js/charts.js',
+  './js/xlsx.js',
   './js/app.js',
   './manifest.webmanifest',
   './icons/icon.svg',

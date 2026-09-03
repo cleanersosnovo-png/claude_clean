@@ -640,39 +640,38 @@
     URL.revokeObjectURL(url);
   }
 
-  // Формирует .xls (HTML-таблица, которую Excel открывает как обычную книгу)
-  function buildExpensesWorkbookHTML(monthKey) {
-    const st = monthStats(monthKey);
-    const rows = [...st.expenses].sort((a, b) => a.date.localeCompare(b.date));
-    const trs = rows.map(t => {
-      const c = S.categoryById(t.category);
-      return `<tr>
-        <td>${t.date}</td>
-        <td>${escapeHTML(c.name)}</td>
-        <td style="mso-number-format:'0';text-align:right">${t.amount}</td>
-        <td>${escapeHTML(t.note || '')}</td>
-      </tr>`;
-    }).join('');
-    return `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
-<head><meta charset="UTF-8">
-<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet>
-<x:Name>Расходы</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions>
-</x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->
-</head><body>
-<table border="1">
-<tr><th colspan="4" style="font-size:14pt">Расходы — ${escapeHTML(monthLabel(monthKey))}</th></tr>
-<tr><th>Дата</th><th>Категория</th><th>Сумма (${cur()})</th><th>Комментарий</th></tr>
-${trs || '<tr><td colspan="4">Нет расходов за этот период</td></tr>'}
-<tr><td colspan="2"><b>Итого</b></td><td style="text-align:right"><b>${st.totalExpense}</b></td><td></td></tr>
-</table>
-</body></html>`;
+  function getReportRange() {
+    const from = $('#reportFromInput').value;
+    const to = $('#reportToInput').value;
+    return { from: from || '0000-01-01', to: to || '9999-12-31' };
+  }
+
+  function formatRangeLabel(from, to) {
+    const fmt = d => { const [y, m, dd] = d.split('-'); return `${dd}.${m}.${y}`; };
+    return `${fmt(from)} — ${fmt(to)}`;
   }
 
   function buildExpensesReportFile() {
-    const html = buildExpensesWorkbookHTML(currentMonth);
-    const blob = new Blob(['﻿' + html], { type: 'application/vnd.ms-excel' });
-    const filename = `fintrek-rashody-${currentMonth}.xls`;
-    return { blob, filename };
+    const { from, to } = getReportRange();
+    const rows = S.getTransactions()
+      .filter(t => t.type === 'expense' && t.date >= from && t.date <= to)
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map(t => ({
+        date: t.date,
+        category: S.categoryById(t.category).name,
+        amount: t.amount,
+        note: t.note || '',
+      }));
+    const totalAmount = rows.reduce((s, r) => s + r.amount, 0);
+
+    const blob = window.XlsxExport.buildExpensesXlsx({
+      title: `Расходы — ${formatRangeLabel(from, to)}`,
+      currency: cur(),
+      rows,
+      totalAmount,
+    });
+    const filename = `fintrek-rashody-${from}_${to}.xlsx`;
+    return { blob, filename, rangeLabel: formatRangeLabel(from, to) };
   }
 
   function exportExcel() {
@@ -686,12 +685,13 @@ ${trs || '<tr><td colspan="4">Нет расходов за этот период
     if (!email) { toast('Введите email'); $('#reportEmailInput').focus(); return; }
     S.updateSettings({ reportEmail: email });
 
-    const { blob, filename } = buildExpensesReportFile();
-    const subject = `Финтрек — расходы за ${monthLabel(currentMonth)}`;
-    const body = `Отчёт о расходах за ${monthLabel(currentMonth)} — во вложении.\nОтправьте на ${email}.`;
+    const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    const { blob, filename, rangeLabel } = buildExpensesReportFile();
+    const subject = `Финтрек — расходы за ${rangeLabel}`;
+    const body = `Отчёт о расходах за ${rangeLabel} — во вложении.\nОтправьте на ${email}.`;
 
     let file = null;
-    try { file = new File([blob], filename, { type: 'application/vnd.ms-excel' }); } catch (e) { /* File API недоступен */ }
+    try { file = new File([blob], filename, { type: XLSX_TYPE }); } catch (e) { /* File API недоступен */ }
 
     if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
       try {
@@ -809,9 +809,18 @@ ${trs || '<tr><td colspan="4">Нет расходов за этот период
   }
 
   // ---------- Старт ----------
+  function initReportRange() {
+    const now = new Date();
+    const first = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+    const last = todayISO();
+    $('#reportFromInput').value = first;
+    $('#reportToInput').value = last;
+  }
+
   function init() {
     seedIfEmpty();
     bindEvents();
+    initReportRange();
     navigate('dashboard');
     renderAll();
     registerSW();
