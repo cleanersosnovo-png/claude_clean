@@ -1,5 +1,5 @@
 /* Service worker — офлайн-кэширование «Финтрек» */
-const CACHE = 'fintrek-v2';
+const CACHE = 'fintrek-v3';
 const ASSETS = [
   './',
   './index.html',

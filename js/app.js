@@ -39,6 +39,11 @@
   function isCurrentMonth(key) { return key === new Date().toISOString().slice(0, 7); }
   function daysInMonth(key) { const [y, m] = key.split('-').map(Number); return new Date(y, m, 0).getDate(); }
   function todayISO() { return new Date().toISOString().slice(0, 10); }
+  function addDaysISO(dateStr, days) {
+    const d = new Date(dateStr + 'T00:00:00');
+    d.setDate(d.getDate() + days);
+    return d.toISOString().slice(0, 10);
+  }
 
   // ---------- Расчёты за месяц ----------
   function monthStats(key) {
@@ -255,13 +260,14 @@
     window.Charts.renderBars($('#barChart'), bars, fmtShort);
 
     renderInsights($('#analyticsInsights'), st, 6);
+    renderInsightsList($('#advancedInsights'), buildAdvancedInsights(st), 8,
+      'Добавьте операции за несколько месяцев — здесь появится расширенная аналитика');
   }
 
   // ---------- Инсайты и рекомендации ----------
-  function renderInsights(container, st, limit) {
-    const items = buildInsights(st);
+  function renderInsightsList(container, items, limit, emptyText) {
     if (items.length === 0) {
-      container.innerHTML = '<div class="empty-hint">Добавьте операции — здесь появятся советы</div>';
+      container.innerHTML = `<div class="empty-hint">${emptyText}</div>`;
       return;
     }
     container.innerHTML = items.slice(0, limit).map(it =>
@@ -269,6 +275,10 @@
         <span class="insight__emoji">${it.emoji}</span>
         <span class="insight__text">${it.text}</span>
       </div>`).join('');
+  }
+
+  function renderInsights(container, st, limit) {
+    renderInsightsList(container, buildInsights(st), limit, 'Добавьте операции — здесь появятся советы');
   }
 
   function buildInsights(st) {
@@ -338,6 +348,116 @@
     if (foodTx.length >= 4) {
       const avg = foodTx.reduce((s, t) => s + t.amount, 0) / foodTx.length;
       out.push({ kind: 'default', emoji: '☕', text: `Кафе и перекусы: <b>${foodTx.length}</b> покупок, в среднем ${fmtMoney(avg)}. Готовя дома, можно заметно сэкономить.` });
+    }
+
+    return out;
+  }
+
+  // ---------- Расширенная аналитика: эконометрика + поведенческая экономика ----------
+  function buildAdvancedInsights(st) {
+    const out = [];
+
+    // Собираем ряд последних 6 месяцев (относительно выбранного месяца)
+    const [cy, cm] = currentMonth.split('-').map(Number);
+    const series = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(cy, cm - 1 - i, 1);
+      const key = d.toISOString().slice(0, 7);
+      const txs = S.transactionsForMonth(key);
+      series.push({
+        key,
+        expense: txs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0),
+        income: txs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0),
+      });
+    }
+    const active = series.filter(s => s.expense > 0);
+
+    // A. Линейный тренд по МНК (метод наименьших квадратов)
+    if (active.length >= 3) {
+      const n = active.length;
+      const ys = active.map(s => s.expense);
+      const xMean = (n - 1) / 2;
+      const yMean = ys.reduce((a, b) => a + b, 0) / n;
+      let num = 0, den = 0;
+      ys.forEach((y, x) => { num += (x - xMean) * (y - yMean); den += (x - xMean) ** 2; });
+      const slope = den !== 0 ? num / den : 0;
+      const slopePct = yMean > 0 ? (slope / yMean) * 100 : 0;
+
+      if (Math.abs(slopePct) >= 4) {
+        if (slope > 0) {
+          out.push({ kind: 'warn', emoji: '📐', text: `Тренд по МНК за ${n} мес.: расходы растут в среднем на <b>${fmtMoney(Math.abs(slope))}/мес</b> (≈${Math.round(slopePct)}% от среднего). Это устойчивый рост, а не разовый скачок.` });
+        } else {
+          out.push({ kind: 'good', emoji: '📐', text: `Тренд по МНК за ${n} мес.: расходы стабильно снижаются на <b>${fmtMoney(Math.abs(slope))}/мес</b> (≈${Math.round(Math.abs(slopePct))}%). Устойчивая положительная динамика.` });
+        }
+      }
+
+      // B. Волатильность — коэффициент вариации
+      const variance = ys.reduce((s, y) => s + (y - yMean) ** 2, 0) / n;
+      const cv = yMean > 0 ? Math.sqrt(variance) / yMean : 0;
+      if (cv >= 0.25) {
+        out.push({ kind: 'warn', emoji: '📊', text: `Коэффициент вариации расходов — <b>${Math.round(cv * 100)}%</b> (сильный разброс месяц к месяцу). Нестабильный бюджет — стоит завести резерв на «дорогие» месяцы.` });
+      } else if (cv > 0 && cv <= 0.12) {
+        out.push({ kind: 'good', emoji: '📊', text: `Расходы очень стабильны: коэффициент вариации всего <b>${Math.round(cv * 100)}%</b>. Предсказуемый бюджет — хорошая база для инвестирования излишков.` });
+      }
+    }
+
+    // E. Эластичность расходов по доходу — «инфляция образа жизни» (lifestyle creep)
+    const withIncome = active.filter(s => s.income > 0);
+    if (withIncome.length >= 3) {
+      const first = withIncome[0], last = withIncome[withIncome.length - 1];
+      const incomeChange = first.income > 0 ? (last.income - first.income) / first.income : 0;
+      if (Math.abs(incomeChange) >= 0.05) {
+        const expenseChange = first.expense > 0 ? (last.expense - first.expense) / first.expense : 0;
+        const elasticity = incomeChange !== 0 ? expenseChange / incomeChange : 0;
+        if (incomeChange > 0 && elasticity >= 0.8) {
+          out.push({ kind: 'warn', emoji: '🎈', text: `Эластичность расходов по доходу ≈ <b>${elasticity.toFixed(1)}</b>: доход вырос на ${Math.round(incomeChange * 100)}%, расходы — на ${Math.round(expenseChange * 100)}%. Похоже на «инфляцию образа жизни» (lifestyle creep) — рост трат почти съедает рост дохода.` });
+        } else if (incomeChange > 0 && elasticity < 0.4) {
+          out.push({ kind: 'good', emoji: '🎯', text: `Доход вырос на ${Math.round(incomeChange * 100)}%, а расходы — лишь на ${Math.round(expenseChange * 100)}% (эластичность ≈${elasticity.toFixed(1)}). Вы не поддаётесь «инфляции образа жизни» — разница уходит в сбережения.` });
+        }
+      }
+    }
+
+    // C. Индекс концентрации расходов (HHI, как в экономике отраслевых рынков)
+    if (st.totalExpense > 0 && st.catList.length >= 2) {
+      const hhi = st.catList.reduce((s, c) => s + (c.amount / st.totalExpense) ** 2, 0);
+      if (hhi >= 0.35) {
+        const top2 = st.catList.slice(0, 2).reduce((s, c) => s + c.amount, 0);
+        const top2Pct = Math.round(top2 / st.totalExpense * 100);
+        out.push({ kind: 'default', emoji: '🎯', text: `Индекс концентрации расходов (HHI) — <b>${hhi.toFixed(2)}</b>: ${top2Pct}% трат сосредоточено в 1–2 категориях. Как и в экономике фирм, высокая концентрация повышает риск при росте цен именно в этой сфере.` });
+      } else if (hhi <= 0.18 && st.catList.length >= 5) {
+        out.push({ kind: 'good', emoji: '🧩', text: `Индекс концентрации расходов (HHI) — <b>${hhi.toFixed(2)}</b>: траты равномерно распределены по ${st.catList.length} категориям. Диверсифицированный бюджет устойчивее к скачку цен в одной сфере.` });
+      }
+    }
+
+    // D. «Фактор латте» — сложный процент от мелких регулярных трат
+    const impulseTx = st.expenses.filter(t => t.category === 'food' || t.category === 'fun');
+    if (impulseTx.length >= 5) {
+      const monthlyImpulse = impulseTx.reduce((s, t) => s + t.amount, 0);
+      const annualRate = 0.08; // условная долгосрочная доходность консервативного портфеля
+      const monthlyRate = annualRate / 12;
+      const fv10 = monthlyImpulse * ((Math.pow(1 + monthlyRate, 120) - 1) / monthlyRate);
+      out.push({ kind: 'default', emoji: '☕', text: `«Фактор латте»: на кафе и развлечения уходит ${fmtMoney(monthlyImpulse)}/мес. Инвестируя эту сумму ежемесячно под ${Math.round(annualRate * 100)}% годовых, за 10 лет сложный процент дал бы ≈<b>${fmtMoney(fv10)}</b>.` });
+    }
+
+    // F. Поведенческий паттерн выходного дня (эффект «расслабленных» трат)
+    const recentTx = S.getTransactions().filter(t => t.type === 'expense' && t.date >= addDaysISO(todayISO(), -90));
+    let weekendSum = 0, weekendCount = 0, weekdaySum = 0, weekdayCount = 0;
+    recentTx.forEach(t => {
+      const day = new Date(t.date + 'T00:00:00').getDay();
+      if (day === 0 || day === 6) { weekendSum += t.amount; weekendCount++; }
+      else { weekdaySum += t.amount; weekdayCount++; }
+    });
+    if (weekendCount >= 4 && weekdayCount >= 4) {
+      const weekendAvg = weekendSum / weekendCount;
+      const weekdayAvg = weekdaySum / weekdayCount;
+      if (weekdayAvg > 0) {
+        const diffPct = Math.round((weekendAvg - weekdayAvg) / weekdayAvg * 100);
+        if (diffPct >= 30) {
+          out.push({ kind: 'default', emoji: '🎉', text: `За 90 дней средний чек в выходные — ${fmtMoney(weekendAvg)} против ${fmtMoney(weekdayAvg)} в будни (+${diffPct}%). Классический эффект «выходного расслабления» из поведенческой экономики — самоконтроль трат слабее вне рабочего режима.` });
+        } else if (diffPct <= -20) {
+          out.push({ kind: 'good', emoji: '🧘', text: `За 90 дней траты в выходные в среднем ниже, чем в будни (${fmtMoney(weekendAvg)} против ${fmtMoney(weekdayAvg)}). Признак осознанного контроля расходов вне рабочего распорядка.` });
+        }
+      }
     }
 
     return out;
