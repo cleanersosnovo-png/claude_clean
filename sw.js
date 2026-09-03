@@ -1,5 +1,5 @@
 /* Service worker — офлайн-кэширование «Финтрек» */
-const CACHE = 'fintrek-v3';
+const CACHE = 'fintrek-v4';
 const ASSETS = [
   './',
   './index.html',
@@ -7,6 +7,7 @@ const ASSETS = [
   './js/store.js',
   './js/charts.js',
   './js/xlsx.js',
+  './js/macro.js',
   './js/app.js',
   './manifest.webmanifest',
   './icons/icon.svg',
@@ -28,10 +29,14 @@ self.addEventListener('activate', event => {
   );
 });
 
-// cache-first для своих ресурсов, network fallback
+// cache-first для своих ресурсов, network fallback.
+// Кросс-доменные запросы (курсы ЦБ и т.п.) не перехватываем —
+// пусть идут напрямую в сеть, без подмены ответа на index.html.
 self.addEventListener('fetch', event => {
   const { request } = event;
   if (request.method !== 'GET') return;
+  if (new URL(request.url).origin !== self.location.origin) return;
+
   event.respondWith(
     caches.match(request).then(cached => {
       if (cached) return cached;

@@ -13,10 +13,12 @@
   let currentMonth = new Date().toISOString().slice(0, 7); // 'YYYY-MM'
   let modalDraft = null; // { id?, type, category, ... } при открытом окне
   let loanDraft = null;  // { id? } при открытом окне кредита
+  let currencyDraft = null; // { id? } при открытом окне валютного остатка
 
   const MONTHS_RU = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
   const MONTHS_RU_SHORT = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
   const VIEW_TITLES = { dashboard: 'Главная', transactions: 'Операции', analytics: 'Аналитика', budget: 'Бюджет', loans: 'Кредиты' };
+  const CURRENCY_SYMBOLS = { USD: '$', EUR: '€', CNY: '¥', GBP: '£' };
 
   // ---------- Форматирование ----------
   function cur() { return S.getSettings().currency; }
@@ -43,6 +45,11 @@
     const d = new Date(dateStr + 'T00:00:00');
     d.setDate(d.getDate() + days);
     return d.toISOString().slice(0, 10);
+  }
+  function formatDateShort(iso) {
+    if (!iso) return '—';
+    const [y, m, d] = iso.split('-');
+    return `${d}.${m}.${y}`;
   }
 
   // ---------- Расчёты за месяц ----------
@@ -262,6 +269,9 @@
     renderInsights($('#analyticsInsights'), st, 6);
     renderInsightsList($('#advancedInsights'), buildAdvancedInsights(st), 8,
       'Добавьте операции за несколько месяцев — здесь появится расширенная аналитика');
+
+    renderMacro();
+    renderCurrencyAccounts();
   }
 
   // ---------- Инсайты и рекомендации ----------
@@ -605,6 +615,203 @@
     renderLoans();
   }
 
+  // ---------- Ставка ЦБ и инфляция ----------
+  function renderMacro() {
+    const m = S.getMacro();
+
+    $('#macroKeyRateValue').textContent = m.keyRate != null ? `${m.keyRate}%` : '—';
+    $('#macroKeyRateMeta').textContent = m.keyRate != null
+      ? `${m.keyRateSource === 'auto' ? 'Авто' : 'Вручную'} · на ${formatDateShort(m.keyRateDate)}`
+      : 'Нет данных';
+
+    $('#macroInflationValue').textContent = m.inflation != null ? `${m.inflation}%` : '—';
+    $('#macroInflationMeta').textContent = m.inflation != null
+      ? `Вручную · на ${formatDateShort(m.inflationDate)}`
+      : 'Нет данных';
+
+    if (document.activeElement !== $('#macroKeyRateInput')) $('#macroKeyRateInput').value = m.keyRate != null ? m.keyRate : '';
+    if (document.activeElement !== $('#macroInflationInput')) $('#macroInflationInput').value = m.inflation != null ? m.inflation : '';
+
+    renderInsightsList($('#macroAdvice'), buildMacroAdvice(m), 5,
+      'Введите ключевую ставку и инфляцию — появятся советы, как вести себя с деньгами');
+  }
+
+  function buildMacroAdvice(m) {
+    const out = [];
+    if (m.keyRate == null && m.inflation == null) return out;
+
+    if (m.keyRate != null) {
+      if (m.keyRate >= 15) {
+        out.push({ kind: 'warn', emoji: '🏦', text: `Ключевая ставка высокая — <b>${m.keyRate}%</b>. Кредиты и рассрочки сейчас дорогие: по возможности избегайте новых займов и в первую очередь гасите долги с высокой или плавающей ставкой.` });
+      } else if (m.keyRate <= 8) {
+        out.push({ kind: 'default', emoji: '🏦', text: `Ключевая ставка невысокая — <b>${m.keyRate}%</b>. Кредиты дешевле, но и доходность вкладов ниже — не время держать все сбережения на депозите под низкий процент.` });
+      }
+    }
+
+    if (m.keyRate != null && m.inflation != null) {
+      const real = m.keyRate - m.inflation;
+      if (real >= 3) {
+        out.push({ kind: 'good', emoji: '📈', text: `Реальная процентная ставка (ставка минус инфляция) — примерно <b>+${real.toFixed(1)}%</b>. Вклады и облигации сейчас реально растут быстрее цен — выгодное время для рублёвых накоплений.` });
+      } else if (real <= 0) {
+        out.push({ kind: 'warn', emoji: '📉', text: `Реальная ставка отрицательная (≈<b>${real.toFixed(1)}%</b>): инфляция обгоняет доходность вклада. Наличные и рублёвые депозиты теряют покупательную способность — стоит присмотреться к активам, защищающим от инфляции.` });
+      } else {
+        out.push({ kind: 'default', emoji: '⚖️', text: `Реальная ставка слегка положительная (≈${real.toFixed(1)}%) — вклад примерно покрывает инфляцию, без заметного реального роста накоплений.` });
+      }
+    }
+
+    if (m.inflation != null && m.inflation >= 8) {
+      out.push({ kind: 'warn', emoji: '🛒', text: `Инфляция высокая — <b>${m.inflation}%</b> в год. Крупные покупки, которые всё равно запланированы, разумнее не откладывать надолго: со временем они дорожают быстрее, чем обычно растут доходы.` });
+    }
+
+    out.push({ kind: 'default', emoji: 'ℹ️', text: 'Это общие ориентиры, а не индивидуальная финансовая консультация — решения по вкладам, кредитам и инвестициям стоит сверять с актуальной ситуацией.' });
+
+    return out;
+  }
+
+  async function refreshKeyRate() {
+    const btn = $('#macroRefreshBtn');
+    const original = btn.textContent;
+    btn.textContent = '⏳ Получаю данные...';
+    btn.disabled = true;
+    try {
+      const { rate, date } = await window.Macro.fetchKeyRate();
+      S.updateMacro({ keyRate: rate, keyRateDate: date, keyRateSource: 'auto' });
+      toast('Ставка ЦБ обновлена');
+    } catch (e) {
+      toast('Не удалось получить автоматически — введите вручную');
+    } finally {
+      btn.textContent = original;
+      btn.disabled = false;
+      renderMacro();
+    }
+  }
+
+  function saveMacroManual() {
+    const keyRate = parseFloat($('#macroKeyRateInput').value);
+    const inflation = parseFloat($('#macroInflationInput').value);
+    const patch = {};
+    if (!isNaN(keyRate)) { patch.keyRate = keyRate; patch.keyRateDate = todayISO(); patch.keyRateSource = 'manual'; }
+    if (!isNaN(inflation)) { patch.inflation = inflation; patch.inflationDate = todayISO(); patch.inflationSource = 'manual'; }
+    if (Object.keys(patch).length === 0) { toast('Введите значение'); return; }
+    S.updateMacro(patch);
+    toast('Сохранено');
+    renderMacro();
+  }
+
+  // ---------- Валютный счёт ----------
+  function renderCurrencyAccounts() {
+    const fx = S.getFx();
+    const listEl = $('#fxRatesList');
+    listEl.innerHTML = window.Macro.FX_CODES.map(code => {
+      const r = fx[code] || {};
+      return `<div class="fx-row">
+        <span class="fx-row__code">${CURRENCY_SYMBOLS[code] || ''} ${code}</span>
+        <input type="number" inputmode="decimal" class="input fx-rate-input" data-cur="${code}" placeholder="₽ за 1" value="${r.rate ? r.rate.toFixed(2) : ''}" />
+      </div>`;
+    }).join('');
+    $$('.fx-rate-input', listEl).forEach(inp => {
+      inp.addEventListener('change', () => {
+        const v = parseFloat(inp.value);
+        if (v > 0) S.updateFxRate(inp.dataset.cur, { rate: v, date: todayISO(), source: 'manual' });
+        renderCurrencyAccounts();
+      });
+    });
+
+    const dates = window.Macro.FX_CODES.map(c => fx[c] && fx[c].date).filter(Boolean).sort();
+    $('#fxUpdatedLabel').textContent = dates.length ? `· на ${formatDateShort(dates[dates.length - 1])}` : '';
+
+    const accounts = S.getCurrencyAccounts();
+    const wrap = $('#currencyAccountsList');
+    if (accounts.length === 0) {
+      wrap.innerHTML = `<div class="empty-state"><div class="empty-state__emoji">💱</div><div>Нет валютных остатков</div></div>`;
+      return;
+    }
+    wrap.innerHTML = accounts.map(a => {
+      const rate = fx[a.currency] && fx[a.currency].rate;
+      const rubValue = rate ? a.amount * rate : null;
+      return `<div class="loan-card" data-id="${a.id}">
+        <div class="loan-card__head">
+          <div class="loan-card__name">${CURRENCY_SYMBOLS[a.currency] || ''} ${a.amount.toLocaleString('ru-RU')} ${a.currency}</div>
+        </div>
+        <div class="loan-card__amounts">
+          <div class="loan-card__remaining">${rubValue != null ? fmtMoney(rubValue) : 'нет курса'}</div>
+          ${rate ? `<div class="loan-card__principal">курс ${rate.toFixed(2)} ₽</div>` : ''}
+        </div>
+        ${a.note ? `<div class="cat-row__meta" style="margin-top:6px">${escapeHTML(a.note)}</div>` : ''}
+        <div class="loan-card__actions">
+          <button class="btn btn--ghost currency-edit-btn" data-id="${a.id}" style="flex:1">Изменить</button>
+        </div>
+      </div>`;
+    }).join('');
+    $$('.currency-edit-btn', wrap).forEach(btn => {
+      btn.addEventListener('click', () => {
+        const acc = accounts.find(a => a.id === btn.dataset.id);
+        if (acc) openCurrencyModal(acc);
+      });
+    });
+  }
+
+  function openCurrencyModal(acc) {
+    const editing = !!acc;
+    currencyDraft = { id: acc ? acc.id : null };
+    $('#currencyModalTitle').textContent = editing ? 'Изменить остаток' : 'Новый валютный остаток';
+    const curCode = acc ? acc.currency : 'USD';
+    $$('#currencySeg .seg__btn').forEach(b => b.classList.toggle('active', b.dataset.cur === curCode));
+    $('#currencyAmountInput').value = acc ? acc.amount : '';
+    $('#currencyNoteInput').value = acc ? (acc.note || '') : '';
+    $('#deleteCurrencyBtn').hidden = !editing;
+    $('#saveCurrencyBtn').textContent = editing ? 'Обновить' : 'Сохранить';
+    $('#currencyModal').hidden = false;
+  }
+
+  function closeCurrencyModal() { $('#currencyModal').hidden = true; currencyDraft = null; }
+
+  function saveCurrencyModal() {
+    const amount = parseFloat($('#currencyAmountInput').value);
+    if (!amount || amount <= 0) { toast('Введите сумму'); $('#currencyAmountInput').focus(); return; }
+    const activeBtn = $('#currencySeg .seg__btn.active');
+    const currency = activeBtn ? activeBtn.dataset.cur : 'USD';
+    const note = $('#currencyNoteInput').value.trim();
+    if (currencyDraft.id) {
+      S.updateCurrencyAccount(currencyDraft.id, { currency, amount, note });
+      toast('Обновлено');
+    } else {
+      S.addCurrencyAccount({ currency, amount, note });
+      toast('Добавлено ✓');
+    }
+    closeCurrencyModal();
+    renderCurrencyAccounts();
+  }
+
+  function deleteCurrencyModal() {
+    if (!currencyDraft.id) return;
+    if (!confirm('Удалить этот валютный остаток?')) return;
+    S.deleteCurrencyAccount(currencyDraft.id);
+    toast('Удалено');
+    closeCurrencyModal();
+    renderCurrencyAccounts();
+  }
+
+  async function refreshFxRates() {
+    const btn = $('#fxRefreshBtn');
+    const original = btn.textContent;
+    btn.textContent = '⏳ Получаю курсы...';
+    btn.disabled = true;
+    try {
+      const { rates, date } = await window.Macro.fetchFxRates();
+      Object.entries(rates).forEach(([code, rate]) => {
+        S.updateFxRate(code, { rate, date, source: 'auto' });
+      });
+      toast('Курсы обновлены');
+    } catch (e) {
+      toast('Не удалось получить курсы — введите вручную');
+    } finally {
+      btn.textContent = original;
+      btn.disabled = false;
+      renderCurrencyAccounts();
+    }
+  }
+
   // ============================================================
   //  МОДАЛЬНОЕ ОКНО ДОБАВЛЕНИЯ / РЕДАКТИРОВАНИЯ
   // ============================================================
@@ -866,6 +1073,20 @@
     $('#loanModal').addEventListener('click', e => { if (e.target.dataset.close !== undefined) closeLoanModal(); });
     $('#saveLoanBtn').addEventListener('click', saveLoanModal);
     $('#deleteLoanBtn').addEventListener('click', deleteLoanModal);
+
+    // Ставка ЦБ / инфляция
+    $('#macroRefreshBtn').addEventListener('click', refreshKeyRate);
+    $('#macroSaveBtn').addEventListener('click', saveMacroManual);
+
+    // Валютный счёт
+    $('#fxRefreshBtn').addEventListener('click', refreshFxRates);
+    $('#addCurrencyBtn').addEventListener('click', () => openCurrencyModal(null));
+    $('#currencyModal').addEventListener('click', e => { if (e.target.dataset.close !== undefined) closeCurrencyModal(); });
+    $$('#currencySeg .seg__btn').forEach(b => b.addEventListener('click', () => {
+      $$('#currencySeg .seg__btn').forEach(x => x.classList.toggle('active', x === b));
+    }));
+    $('#saveCurrencyBtn').addEventListener('click', saveCurrencyModal);
+    $('#deleteCurrencyBtn').addEventListener('click', deleteCurrencyModal);
 
     // Фильтры операций
     $('#txSearch').addEventListener('input', renderTransactions);

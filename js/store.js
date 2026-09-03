@@ -35,15 +35,33 @@
   const DEFAULT_STATE = {
     transactions: [],           // { id, type, amount, category, date:'YYYY-MM-DD', note }
     loans: [],                  // { id, name, principal, remaining, monthlyPayment, rate, nextDate }
+    currencyAccounts: [],       // { id, currency, amount, note }
     settings: {
       currency: '₽',
       totalBudget: 0,
       categoryBudgets: {},      // { categoryId: amount }
       reportEmail: '',
+      macro: {                  // ключевая ставка ЦБ и инфляция
+        keyRate: null, keyRateDate: null, keyRateSource: null,       // 'auto' | 'manual'
+        inflation: null, inflationDate: null, inflationSource: null,
+      },
+      fx: {                     // курсы валют, ₽ за 1 единицу
+        USD: { rate: null, date: null, source: null },
+        EUR: { rate: null, date: null, source: null },
+        CNY: { rate: null, date: null, source: null },
+        GBP: { rate: null, date: null, source: null },
+      },
     },
   };
 
   let state = load();
+
+  function normalizeSettings(rawSettings) {
+    const settings = Object.assign(structuredClone(DEFAULT_STATE.settings), rawSettings || {});
+    settings.fx = Object.assign(structuredClone(DEFAULT_STATE.settings.fx), settings.fx || {});
+    settings.macro = Object.assign(structuredClone(DEFAULT_STATE.settings.macro), settings.macro || {});
+    return settings;
+  }
 
   function load() {
     try {
@@ -53,7 +71,8 @@
       return {
         transactions: Array.isArray(parsed.transactions) ? parsed.transactions : [],
         loans: Array.isArray(parsed.loans) ? parsed.loans : [],
-        settings: Object.assign(structuredClone(DEFAULT_STATE.settings), parsed.settings || {}),
+        currencyAccounts: Array.isArray(parsed.currencyAccounts) ? parsed.currencyAccounts : [],
+        settings: normalizeSettings(parsed.settings),
       };
     } catch (e) {
       console.warn('Не удалось загрузить данные:', e);
@@ -81,6 +100,9 @@
     getSettings() { return state.settings; },
     getTransactions() { return state.transactions; },
     getLoans() { return state.loans; },
+    getCurrencyAccounts() { return state.currencyAccounts; },
+    getMacro() { return state.settings.macro; },
+    getFx() { return state.settings.fx; },
 
     categoryById(id) {
       return CATEGORIES.expense.find(c => c.id === id)
@@ -166,6 +188,44 @@
       return loan;
     },
 
+    addCurrencyAccount(acc) {
+      const item = {
+        id: uid(),
+        currency: acc.currency,
+        amount: Math.abs(Number(acc.amount)) || 0,
+        note: (acc.note || '').trim(),
+      };
+      state.currencyAccounts.push(item);
+      persist();
+      return item;
+    },
+
+    updateCurrencyAccount(id, patch) {
+      const acc = state.currencyAccounts.find(a => a.id === id);
+      if (!acc) return null;
+      if (patch.currency) acc.currency = patch.currency;
+      if (patch.amount != null) acc.amount = Math.abs(Number(patch.amount)) || 0;
+      if (patch.note != null) acc.note = patch.note.trim();
+      persist();
+      return acc;
+    },
+
+    deleteCurrencyAccount(id) {
+      state.currencyAccounts = state.currencyAccounts.filter(a => a.id !== id);
+      persist();
+    },
+
+    updateMacro(patch) {
+      Object.assign(state.settings.macro, patch);
+      persist();
+    },
+
+    updateFxRate(code, patch) {
+      if (!state.settings.fx[code]) state.settings.fx[code] = { rate: null, date: null, source: null };
+      Object.assign(state.settings.fx[code], patch);
+      persist();
+    },
+
     updateSettings(patch) {
       Object.assign(state.settings, patch);
       persist();
@@ -202,7 +262,8 @@
       state = {
         transactions: parsed.transactions,
         loans: Array.isArray(parsed.loans) ? parsed.loans : [],
-        settings: Object.assign(structuredClone(DEFAULT_STATE.settings), parsed.settings || {}),
+        currencyAccounts: Array.isArray(parsed.currencyAccounts) ? parsed.currencyAccounts : [],
+        settings: normalizeSettings(parsed.settings),
       };
       persist();
     },

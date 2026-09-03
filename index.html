@@ -122,6 +122,44 @@
         </div>
         <div class="empty-hint" style="text-align:left;padding:0 4px 10px">На основе эконометрики и поведенческой экономики: тренды по МНК, волатильность, индекс концентрации HHI, сложный процент и поведенческие паттерны.</div>
         <div id="advancedInsights" class="insights"></div>
+
+        <!-- ============ MACRO: ставка ЦБ и инфляция ============ -->
+        <div class="section-head"><h2>Ставка ЦБ и инфляция</h2></div>
+        <div class="card">
+          <div class="macro-grid">
+            <div class="macro-tile">
+              <div class="macro-tile__label">Ключевая ставка</div>
+              <div class="macro-tile__value" id="macroKeyRateValue">—</div>
+              <div class="macro-tile__meta" id="macroKeyRateMeta">Нет данных</div>
+            </div>
+            <div class="macro-tile">
+              <div class="macro-tile__label">Инфляция, год</div>
+              <div class="macro-tile__value" id="macroInflationValue">—</div>
+              <div class="macro-tile__meta" id="macroInflationMeta">Нет данных</div>
+            </div>
+          </div>
+          <button class="btn btn--ghost" id="macroRefreshBtn" style="margin-top:14px">🔄 Обновить ставку ЦБ автоматически</button>
+          <label class="field">
+            <span>Ключевая ставка ЦБ, % (вручную)</span>
+            <input type="number" inputmode="decimal" id="macroKeyRateInput" class="input" placeholder="Например, 21" step="0.25" />
+          </label>
+          <label class="field">
+            <span>Инфляция, % годовых (вручную — у Росстата нет открытого API)</span>
+            <input type="number" inputmode="decimal" id="macroInflationInput" class="input" placeholder="Например, 8.5" step="0.1" />
+          </label>
+          <button class="btn btn--primary" id="macroSaveBtn" style="margin-top:10px">Сохранить вручную</button>
+        </div>
+        <div id="macroAdvice" class="insights" style="margin-top:10px"></div>
+
+        <!-- ============ ВАЛЮТНЫЙ СЧЁТ ============ -->
+        <div class="section-head"><h2>Валютный счёт</h2></div>
+        <div class="card">
+          <div class="chart-title">Курсы валют <span class="fx-updated" id="fxUpdatedLabel"></span></div>
+          <button class="btn btn--ghost" id="fxRefreshBtn">🔄 Обновить курсы валют</button>
+          <div id="fxRatesList" style="margin-top:8px"></div>
+        </div>
+        <button class="btn btn--primary" id="addCurrencyBtn" style="margin:14px 0">+ Добавить валютный остаток</button>
+        <div id="currencyAccountsList"></div>
       </section>
 
       <!-- ============ BUDGET / SETTINGS ============ -->
@@ -305,11 +343,42 @@
     </div>
   </div>
 
+  <!-- Currency account modal -->
+  <div class="modal" id="currencyModal" hidden>
+    <div class="modal__backdrop" data-close></div>
+    <div class="modal__sheet">
+      <div class="modal__handle"></div>
+      <div class="chart-title" id="currencyModalTitle">Валютный остаток</div>
+
+      <div class="seg" id="currencySeg">
+        <button class="seg__btn active" data-cur="USD">USD</button>
+        <button class="seg__btn" data-cur="EUR">EUR</button>
+        <button class="seg__btn" data-cur="CNY">CNY</button>
+        <button class="seg__btn" data-cur="GBP">GBP</button>
+      </div>
+
+      <label class="field">
+        <span>Сумма</span>
+        <input type="number" inputmode="decimal" id="currencyAmountInput" class="input" placeholder="Например, 500" />
+      </label>
+      <label class="field">
+        <span>Комментарий</span>
+        <input type="text" id="currencyNoteInput" class="input" placeholder="Необязательно" maxlength="60" />
+      </label>
+
+      <div class="modal__actions">
+        <button class="btn btn--danger-ghost" id="deleteCurrencyBtn" hidden>Удалить</button>
+        <button class="btn btn--primary" id="saveCurrencyBtn">Сохранить</button>
+      </div>
+    </div>
+  </div>
+
   <div id="toast" class="toast" hidden></div>
 
   <script src="js/store.js"></script>
   <script src="js/charts.js"></script>
   <script src="js/xlsx.js"></script>
+  <script src="js/macro.js"></script>
   <script src="js/app.js"></script>
 </body>
 </html>
